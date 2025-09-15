@@ -1,8 +1,13 @@
 {
   "name": "node-starter",
   "private": true,
+  "engine": {
+    "node": "18"
+  },
   "scripts": {
-    "dev": "tsx src/server.ts"
+    "dev": "tsx src/server.ts",
+    "start": "node dist/server.js",
+    "build": "tsup src"
   },
   "dependencies": {
     "@fastify/cors": "^11.1.0",
