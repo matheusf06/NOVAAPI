@@ -37,10 +37,20 @@ app.decorate('authenticate', async (request, reply) => {
 });
 
 // ==========================================================
-// ROTA DE TESTE
+// ROTA DE TESTE E HEALTH CHECK
 // ==========================================================
 app.get('/', () => {
   return { message: 'Bem-vindo à API do Planeta Água! 🌎' };
+});
+
+// CORREÇÃO: Adicionar rota de health check
+app.get('/health', () => {
+  return { 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    message: 'API funcionando normalmente'
+  };
 });
 
 // ==========================================================
@@ -49,51 +59,85 @@ app.get('/', () => {
 
 // Rota de Cadastro (SignUp)
 app.post('/signup', async (request, reply) => {
-  const { name, email, password } = request.body;
-  if (!name || !email || !password) {
-    return reply
-      .status(400)
-      .send({ error: 'Nome, email e senha são obrigatórios.' });
-  }
-  const password_hash = await bcrypt.hash(password, 8);
-  const { data, error } = await supabase
-    .from('users')
-    .insert([{ name, email, password_hash }])
-    .select('id, name, email, created_at')
-    .single();
-
-  if (error) {
-    if (error.code === '23505') {
-      return reply.status(409).send({ error: 'Este email já está em uso.' });
+  try {
+    const { name, email, password } = request.body;
+    
+    if (!name || !email || !password) {
+      return reply
+        .status(400)
+        .send({ error: 'Nome, email e senha são obrigatórios.' });
     }
-    return reply
-      .status(500)
-      .send({ error: 'Erro ao criar usuário.', details: error.message });
+    
+    const password_hash = await bcrypt.hash(password, 8);
+    const { data, error } = await supabase
+      .from('users')
+      .insert([{ name, email, password_hash }])
+      .select('id, name, email, created_at')
+      .single();
+
+    if (error) {
+      if (error.code === '23505') {
+        return reply.status(409).send({ error: 'Este email já está em uso.' });
+      }
+      return reply
+        .status(500)
+        .send({ error: 'Erro ao criar usuário.', details: error.message });
+    }
+    
+    return reply.status(201).send({ user: data });
+  } catch (error) {
+    console.error('Erro no signup:', error);
+    return reply.status(500).send({ error: 'Erro interno do servidor.' });
   }
-  return reply.status(201).send({ user: data });
 });
 
-// Rota de Login
+// CORREÇÃO: Rota de Login com melhor tratamento de erro
 app.post('/login', async (request, reply) => {
-  const { email, password } = request.body;
-  const { data: user, error } = await supabase
-    .from('users')
-    .select('*')
-    .eq('email', email)
-    .single();
-  if (error || !user) {
-    return reply.status(401).send({ error: 'Email ou senha inválidos.' });
+  try {
+    const { email, password } = request.body;
+    
+    // Validação básica
+    if (!email || !password) {
+      return reply.status(400).send({ error: 'Email e senha são obrigatórios.' });
+    }
+    
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('email', email)
+      .single();
+      
+    if (error || !user) {
+      return reply.status(401).send({ error: 'Email ou senha inválidos.' });
+    }
+    
+    const passwordMatch = await bcrypt.compare(password, user.password_hash);
+    if (!passwordMatch) {
+      return reply.status(401).send({ error: 'Email ou senha inválidos.' });
+    }
+    
+    const token = app.jwt.sign(
+      { name: user.name, email: user.email },
+      { sub: user.id, expiresIn: '7d' }
+    );
+    
+    const { password_hash, ...userResponse } = user;
+    
+    // CORREÇÃO: Garantir que a resposta tenha a estrutura correta
+    const response = { 
+      user: userResponse, 
+      token 
+    };
+    
+    console.log('Login successful for:', email);
+    console.log('Response structure:', Object.keys(response));
+    
+    return reply.status(200).send(response);
+    
+  } catch (error) {
+    console.error('Erro no login:', error);
+    return reply.status(500).send({ error: 'Erro interno do servidor.' });
   }
-  const passwordMatch = await bcrypt.compare(password, user.password_hash);
-  if (!passwordMatch) {
-    return reply.status(401).send({ error: 'Email ou senha inválidos.' });
-  }
-  const token = app.jwt.sign(
-    { name: user.name, email: user.email },
-    { sub: user.id, expiresIn: '7d' }
-  );
-  const { password_hash, ...userResponse } = user;
-  return { user: userResponse, token };
 });
 
 // Rota para buscar perfil do usuário (Protegida)
@@ -292,8 +336,6 @@ app.get(
   }
 );
 
-// Adicionar estas rotas ao seu server.js:
-
 // ==========================================================
 // ROTAS DE CARTÕES DE CRÉDITO (Protegidas)
 // ==========================================================
@@ -336,7 +378,7 @@ app.post(
       .single();
 
     if (error) return reply.status(500).send({ error: error.message });
-    return reply.status(201).send({ creditCard: data });
+    return reply.status(201).send({ card: data });
   }
 );
 
