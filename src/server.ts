@@ -654,6 +654,101 @@ app.get(
 );
 
 // ==========================================================
+// ROTA PARA PROCESSAR PEDIDO (simplificado)
+// ==========================================================
+
+app.post(
+  '/orders/process',
+  { onRequest: [app.authenticate] },
+  async (request, reply) => {
+    try {
+      const userId = request.user.sub;
+      const { items, total, addressId, paymentMethod, cardId } = request.body;
+
+      console.log('📦 Processando pedido:', { userId, total, addressId, paymentMethod });
+
+      if (!items || items.length === 0 || !total || !addressId) {
+        return reply.status(400).send({ error: 'Dados do pedido incompletos.' });
+      }
+
+      // Buscar endereço
+      const { data: address, error: addressError } = await supabase
+        .from('addresses')
+        .select('*')
+        .eq('id', addressId)
+        .eq('user_id', userId)
+        .single();
+
+      if (addressError || !address) {
+        console.error('Erro ao buscar endereço:', addressError);
+        return reply.status(404).send({ error: 'Endereço não encontrado.' });
+      }
+
+      // Formato do endereço para shipping_address
+      const shippingAddress = `${address.street}, ${address.neighborhood}, ${address.city} - ${address.state}`;
+
+      // Criar pedido
+      const { data: orderData, error: orderError } = await supabase
+        .from('orders')
+        .insert([
+          {
+            user_id: userId,
+            total,
+            shipping_address: shippingAddress,
+            status: paymentMethod === 'PIX' ? 'pending' : 'confirmed',
+          },
+        ])
+        .select()
+        .single();
+
+      if (orderError) {
+        console.error('Erro ao criar pedido:', orderError);
+        return reply.status(500).send({
+          error: 'Erro ao criar o pedido.',
+          details: orderError.message,
+        });
+      }
+
+      console.log('✅ Pedido criado:', orderData.id);
+
+      // Adicionar items
+      const orderItems = items.map((item) => ({
+        order_id: orderData.id,
+        product_id: item.id,
+        quantity: item.quantity,
+        price_at_purchase: item.price,
+      }));
+
+      const { error: itemsError } = await supabase
+        .from('order_items')
+        .insert(orderItems);
+
+      if (itemsError) {
+        console.error('Erro ao salvar items:', itemsError);
+        await supabase.from('orders').delete().eq('id', orderData.id);
+        return reply.status(500).send({
+          error: 'Erro ao salvar os itens do pedido.',
+          details: itemsError.message,
+        });
+      }
+
+      console.log('✅ Items salvos com sucesso');
+
+      return reply.status(201).send({
+        order: orderData,
+        message: 'Pedido criado com sucesso!',
+      });
+    } catch (error) {
+      console.error('💥 Erro crítico ao processar pedido:', error);
+      return reply.status(500).send({
+        error: 'Erro ao processar pedido.',
+        details: error.message,
+      });
+    }
+  }
+);
+
+// ==========================================================
 // INICIALIZAÇÃO DO SERVIDOR
 // ==========================================================
 const start = async () => {
@@ -672,3 +767,4 @@ const start = async () => {
 };
 
 start();
+
