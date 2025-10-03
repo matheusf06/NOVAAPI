@@ -26,7 +26,7 @@ const payment = new Payment(mercadoPagoClient);
 const preference = new Preference(mercadoPagoClient);
 
 // --- INICIALIZAÇÃO DO FASTIFY ---
-const app = fastify({ logger: true });
+const app = fastify({ logger: false });
 
 // --- PLUGINS DO FASTIFY ---
 app.register(fastifyCors, { origin: '*' });
@@ -767,4 +767,5 @@ const start = async () => {
 };
 
 start();
+
 
